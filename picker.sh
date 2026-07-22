@@ -46,11 +46,12 @@ fi
 content="$("$herdr_bin" pane read "$pane_id" --source recent-unwrapped --lines "$lines")" ||
   die "failed to read pane $pane_id"
 
-# Match http(s) URLs, trim common trailing punctuation, dedupe keeping order.
+# Match http(s) URLs, trim common trailing punctuation, list newest first,
+# dedupe keeping the most recent occurrence.
 urls="$(printf '%s\n' "$content" |
   grep -Eo 'https?://[^[:space:]<>"'\''`]+' |
   sed -E 's/[]}),.;:!?]+$//' |
-  awk 'NF && !seen[$0]++')" || true
+  awk 'NF { lines[++n] = $0 } END { for (i = n; i >= 1; i--) if (!seen[lines[i]]++) print lines[i] }')" || true
 
 if [[ -z "$urls" ]]; then
   printf 'No URLs found in pane %s.\n' "$pane_id"
