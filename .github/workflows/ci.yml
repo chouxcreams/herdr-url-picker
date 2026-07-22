@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-shell:
+    name: Lint shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: shellcheck
+        run: |
+          mapfile -t files < <(git ls-files '*.sh')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No shell scripts found; skipping."
+            exit 0
+          fi
+          shellcheck "${files[@]}"
+
+      - name: Install shfmt
+        env:
+          SHFMT_VERSION: v3.13.1
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL \
+            "https://github.com/mvdan/sh/releases/download/${SHFMT_VERSION}/shfmt_${SHFMT_VERSION}_linux_amd64" \
+            -o "$HOME/.local/bin/shfmt"
+          chmod +x "$HOME/.local/bin/shfmt"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: shfmt (format check)
+        run: git ls-files '*.sh' | xargs -r shfmt -d -i 2 -ci
+
+  validate-manifest:
+    name: Validate plugin manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check herdr-plugin.toml
+        run: |
+          if [ ! -f herdr-plugin.toml ]; then
+            echo "herdr-plugin.toml not found; skipping."
+            exit 0
+          fi
+          python3 - <<'EOF'
+          import sys
+          import tomllib
+
+          with open("herdr-plugin.toml", "rb") as f:
+              manifest = tomllib.load(f)
+
+          errors = []
+          for key in ("id", "name", "version", "description"):
+              if not manifest.get(key):
+                  errors.append(f"missing required key: {key}")
+
+          # Entrypoint scripts referenced by panes/actions must exist in the repo.
+          import os
+          for section in ("panes", "actions"):
+              for entry in manifest.get(section, []):
+                  command = entry.get("command")
+                  if not command:
+                      errors.append(f"[[{section}]] {entry.get('id', '?')}: missing command")
+                      continue
+                  for arg in command:
+                      if arg.endswith(".sh") and not os.path.isfile(arg):
+                          errors.append(f"[[{section}]] {entry.get('id', '?')}: script not found: {arg}")
+
+          if errors:
+              print("herdr-plugin.toml validation failed:")
+              for e in errors:
+                  print(f"  - {e}")
+              sys.exit(1)
+          print("herdr-plugin.toml is valid.")
+          EOF
+
+  lint-workflows:
+    name: Lint GitHub Actions workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+        run: |
+          curl -fsSL \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color
