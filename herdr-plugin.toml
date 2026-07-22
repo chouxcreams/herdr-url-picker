@@ -1,0 +1,19 @@
+id = "chouxcreams.url-picker"
+name = "URL Picker"
+version = "0.1.0"
+min_herdr_version = "0.7.5"
+description = "Pick a URL from the focused pane and open it in your browser"
+platforms = ["linux", "macos"]
+
+[[panes]]
+id = "picker"
+title = "URL Picker"
+placement = "popup"
+width = "60%"
+height = 20
+command = ["bash", "picker.sh"]
+
+[[actions]]
+id = "pick"
+title = "Pick URL from focused pane"
+command = ["bash", "open-popup.sh"]
